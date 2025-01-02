@@ -19,13 +19,19 @@ private:
     sf::RenderWindow window;
     sf::Font font;
     sf::Text scoreText, helpText, exitConfirmationText;
-    sf::Texture playerTexture, enemyTexture, bulletTexture, backgroundTexture;
+    sf::Texture playerTexture, enemyTexture, bulletTexture, enemyBulletTexture, backgroundTexture, healthTexture;
     sf::Sprite player, background;
     std::vector<sf::Sprite> enemies;
     std::vector<sf::Sprite> bullets;
+    std::vector<sf::Sprite> enemyBullets;
+    std::vector<sf::Sprite> healthSprites; // Sprite'y reprezentujące zdrowie
+    std::vector<sf::Sprite> fallingHearts; // Sprite'y reprezentujące spadające serca
+    sf::Clock enemyBulletClock;
+    sf::Time enemyBulletCooldown = sf::seconds(1.0f);
 
     int score = 0;
     int level = 1;
+    int health = 3;
     bool isHelpScreen = false;
     bool isExitConfirmation = false;
     bool gameRunning = true;
@@ -46,23 +52,15 @@ private:
         if (!playerTexture.loadFromFile("player.png") ||
             !enemyTexture.loadFromFile("enemy.png") ||
             !bulletTexture.loadFromFile("bullet.png") ||
-            !backgroundTexture.loadFromFile("background.png")) {
+            !enemyBulletTexture.loadFromFile("enemy_bullet.png") ||
+            !backgroundTexture.loadFromFile("background.png") ||
+            !healthTexture.loadFromFile("heart.png")) { 
             throw std::runtime_error("Nie udało się wczytać tekstur");
         }
 
         player.setTexture(playerTexture);
         background.setTexture(backgroundTexture);
         player.setPosition(400, 500);
-
-        // Skalowanie dużych tekstur
-        enemyTexture.setSmooth(true);
-        bulletTexture.setSmooth(true);
-        for (auto& texture : { &enemyTexture, &bulletTexture }) {
-            sf::Vector2u size = texture->getSize();
-            sf::Sprite sprite;
-            sprite.setTexture(*texture);
-            sprite.setScale(50.0f / size.x, 50.0f / size.y); // Ustawianie skali do 50x50 pikseli
-        }
     }
 
     void setupText(sf::Text& text, const std::string& content, float x, float y, int size = 20) {
@@ -82,30 +80,45 @@ private:
         }
     }
 
-    void saveGameState() {
-        std::ofstream outFile("gamestate.txt");
-        if (!outFile) return;
-
-        outFile << score << " " << level << "\n";
-        for (const auto& enemy : enemies) {
-            outFile << enemy.getPosition().x << " " << enemy.getPosition().y << "\n";
+    void initializeHealthSprites() {
+        healthSprites.clear();
+        for (int i = 0; i < health; ++i) {
+            sf::Sprite heart(healthTexture);
+            heart.setPosition(680 + i * 40, 550); // Pozycjonowanie sprite'ów zdrowia
+            healthSprites.push_back(heart);
         }
-        outFile.close();
     }
 
-    void loadGameState() {
-        std::ifstream inFile("gamestate.txt");
-        if (!inFile) return;
-
-        inFile >> score >> level;
-        enemies.clear();
-        float x, y;
-        while (inFile >> x >> y) {
-            sf::Sprite enemy(enemyTexture);
-            enemy.setPosition(x, y);
-            enemies.push_back(enemy);
+    void updateHealthSprites() {
+        if (health < healthSprites.size()) {
+            healthSprites.pop_back(); // Usunięcie ostatniego sprite'a zdrowia
         }
-        inFile.close();
+    }
+
+    void updateFallingHearts() {
+        // Aktualizacja pozycji spadających serc
+        for (auto& heart : fallingHearts) {
+            heart.move(0, 0.05f); // Prędkość spadania serca
+        }
+
+        // Usuwanie serc, które spadły poza ekran
+        fallingHearts.erase(std::remove_if(fallingHearts.begin(), fallingHearts.end(), [](const sf::Sprite& heart) {
+            return heart.getPosition().y > 600;
+            }), fallingHearts.end());
+
+        // Kolizja gracza z sercami
+        for (auto it = fallingHearts.begin(); it != fallingHearts.end();) {
+            if (it->getGlobalBounds().intersects(player.getGlobalBounds())) {
+                it = fallingHearts.erase(it); // Usunięcie serca po zebraniu
+                if (health < 3) {
+                    health++; // Zwiększenie zdrowia
+                    initializeHealthSprites(); // Aktualizacja wyświetlania serc
+                }
+            }
+            else {
+                ++it;
+            }
+        }
     }
 
     void handleEvents() {
@@ -119,11 +132,15 @@ private:
                     isExitConfirmation = true;
                 }
 
-                if (event.key.code == sf::Keyboard::F1) {
-                    isHelpScreen = !isHelpScreen;
+                if (isExitConfirmation) {
+                    if (event.key.code == sf::Keyboard::Y) {
+                        window.close();
+                    }
+                    else if (event.key.code == sf::Keyboard::N) {
+                        isExitConfirmation = false;
+                    }
                 }
-
-                if (!isHelpScreen && !isExitConfirmation) {
+                else if (!isHelpScreen && !isExitConfirmation) {
                     if (event.key.code == sf::Keyboard::Left && player.getPosition().x > 0) {
                         player.move(-10, 0);
                     }
@@ -140,38 +157,74 @@ private:
             }
         }
 
-        // Strzelanie pociskami
+        // Strzelanie pociskami gracza
         if (!isHelpScreen && !isExitConfirmation) {
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space) && spaceReleased) {
                 sf::Sprite bullet(bulletTexture);
                 bullet.setPosition(player.getPosition().x + 25, player.getPosition().y);
                 bullets.push_back(bullet);
-                spaceReleased = false; // Ustawienie flagi na fałsz po stworzeniu pocisku
+                spaceReleased = false;
             }
         }
     }
 
     void updateGame() {
-        // Aktualizacja pozycji pocisków
+        // Aktualizacja pozycji pocisków gracza
         for (auto& bullet : bullets) {
             bullet.move(0, -0.2);
         }
 
-        // Usuwanie pocisków poza ekranem
+        // Usuwanie pocisków gracza poza ekranem
         bullets.erase(std::remove_if(bullets.begin(), bullets.end(), [](const sf::Sprite& b) {
             return b.getPosition().y < 0;
             }), bullets.end());
 
-        // Kolizje pocisków z wrogami
+        // Kolizje pocisków gracza z wrogami
         for (auto& bullet : bullets) {
+            bool enemyHit = false; // Flaga wskazująca, czy przeciwnik został zniszczony
             for (auto it = enemies.begin(); it != enemies.end();) {
                 if (bullet.getGlobalBounds().intersects(it->getGlobalBounds())) {
-                    it = enemies.erase(it);
-                    score += 10;
+                    // Szansa na wypadnięcie serca
+                    if (rand() % 100 < 10) { // 10% szansy
+                        sf::Sprite heart(healthTexture);
+                        heart.setPosition(it->getPosition().x, it->getPosition().y);
+                        fallingHearts.push_back(heart);
+                    }
                 }
-                else {
-                    ++it;
+            }
+        }
+
+        // Generowanie pocisków przeciwników z ograniczoną częstotliwością
+        if (enemyBulletClock.getElapsedTime() > enemyBulletCooldown) {
+            int randomEnemy = rand() % enemies.size();
+            sf::Sprite enemyBullet(enemyBulletTexture);
+            enemyBullet.setPosition(enemies[randomEnemy].getPosition().x + 25, enemies[randomEnemy].getPosition().y + 50);
+            enemyBullets.push_back(enemyBullet);
+            enemyBulletClock.restart();
+        }
+
+        // Aktualizacja pozycji pocisków przeciwników
+        for (auto& enemyBullet : enemyBullets) {
+            enemyBullet.move(0, 0.06);
+        }
+
+        // Usuwanie pocisków przeciwników poza ekranem
+        enemyBullets.erase(std::remove_if(enemyBullets.begin(), enemyBullets.end(), [](const sf::Sprite& b) {
+            return b.getPosition().y > 600;
+            }), enemyBullets.end());
+
+        // Kolizje pocisków przeciwników z graczem
+        for (auto it = enemyBullets.begin(); it != enemyBullets.end();) {
+            if (it->getGlobalBounds().intersects(player.getGlobalBounds())) {
+                it = enemyBullets.erase(it);
+                health--;
+                updateHealthSprites(); // Aktualizacja sprite'ów zdrowia
+                if (health <= 0) {
+                    gameRunning = false;
                 }
+            }
+            else {
+                ++it;
             }
         }
 
@@ -180,6 +233,9 @@ private:
             level++;
             spawnEnemies();
         }
+
+        // Aktualizacja spadających serc
+        updateFallingHearts();
 
         // Aktualizacja wyświetlanych danych
         scoreText.setString("Score: " + std::to_string(score));
@@ -193,6 +249,7 @@ private:
             window.draw(helpText);
         }
         else if (isExitConfirmation) {
+            setupText(exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
             window.draw(exitConfirmationText);
         }
         else {
@@ -203,6 +260,15 @@ private:
             for (const auto& bullet : bullets) {
                 window.draw(bullet);
             }
+            for (const auto& enemyBullet : enemyBullets) {
+                window.draw(enemyBullet);
+            }
+            for (const auto& heart : healthSprites) {
+                window.draw(heart); // Rysowanie sprite'ów zdrowia
+            }
+            for (const auto& heart : fallingHearts) {
+                window.draw(heart); // Rysowanie spadających serc
+            }
             window.draw(scoreText);
         }
 
@@ -212,10 +278,11 @@ private:
 public:
     SpaceInvaders() : window(sf::VideoMode(800, 600), "Space Invaders") {
         loadResources();
-        setupText(scoreText, "Score: 0", 10, 10);
+        setupText(scoreText, "Score: 0", 10, 550);
         setupText(helpText, "F1: Help\nESC: Exit\nSpace: Shoot\nArrow Keys: Move", 200, 200, 30);
         setupText(exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
         spawnEnemies();
+        initializeHealthSprites(); // Inicjalizacja sprite'ów zdrowia
     }
 
     void run() {
@@ -241,3 +308,4 @@ int main() {
 
     return 0;
 }
+
