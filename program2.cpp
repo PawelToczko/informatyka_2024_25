@@ -2,10 +2,12 @@
 #include <SFML/Window.hpp>
 #include <SFML/System.hpp>
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <string>
 #include <sstream>
+#include <algorithm>
+#include <fstream> 
+#include <stdexcept>
 
 // Struktura przechowująca informacje o graczach
 struct Player {
@@ -39,8 +41,15 @@ private:
     // Flaga śledząca, czy klawisz spacji został zwolniony
     bool spaceReleased = true;
 
-    // Dane do zapisu gry
-    std::vector<Player> players;
+    void startNewGame() {
+        score = 0;
+        level = 1;
+        health = 3;
+        spawnEnemies();
+        initializeHealthSprites();
+        gameRunning = true;
+    }
+
 
     void loadResources() {
         // Wczytywanie czcionki
@@ -54,7 +63,7 @@ private:
             !bulletTexture.loadFromFile("bullet.png") ||
             !enemyBulletTexture.loadFromFile("enemy_bullet.png") ||
             !backgroundTexture.loadFromFile("background.png") ||
-            !healthTexture.loadFromFile("heart.png")) { 
+            !healthTexture.loadFromFile("heart.png")) {
             throw std::runtime_error("Nie udało się wczytać tekstur");
         }
 
@@ -63,12 +72,14 @@ private:
         player.setPosition(400, 500);
     }
 
-    void setupText(sf::Text& text, const std::string& content, float x, float y, int size = 20) {
-        text.setFont(font);
-        text.setString(content);
-        text.setCharacterSize(size);
-        text.setFillColor(sf::Color::White);
-        text.setPosition(x, y);
+    void setupText(sf::Text* text, const std::string& content, float x, float y, int size = 20) {
+        if (text) {
+            text->setFont(font);
+            text->setString(content);
+            text->setCharacterSize(size);
+            text->setFillColor(sf::Color::White);
+            text->setPosition(x, y);
+        }
     }
 
     void spawnEnemies() {
@@ -155,6 +166,11 @@ private:
                     spaceReleased = true;
                 }
             }
+            if (event.type == sf::Event::Closed) {
+                saveGame();
+                window.close();
+            }
+
         }
 
         // Strzelanie pociskami gracza
@@ -181,21 +197,26 @@ private:
 
         // Kolizje pocisków gracza z wrogami
         for (auto& bullet : bullets) {
-            bool enemyHit = false; // Flaga wskazująca, czy przeciwnik został zniszczony
             for (auto it = enemies.begin(); it != enemies.end();) {
                 if (bullet.getGlobalBounds().intersects(it->getGlobalBounds())) {
-                    // Szansa na wypadnięcie serca
-                    if (rand() % 100 < 10) { // 10% szansy
+                    // Drop serca z przeciwnika
+                    if (rand() % 10 == 0) { // 10%
                         sf::Sprite heart(healthTexture);
                         heart.setPosition(it->getPosition().x, it->getPosition().y);
                         fallingHearts.push_back(heart);
                     }
+
+                    it = enemies.erase(it); // Usunięcie przeciwnika
+                    score += 10;
+                }
+                else {
+                    ++it;
                 }
             }
         }
 
         // Generowanie pocisków przeciwników z ograniczoną częstotliwością
-        if (enemyBulletClock.getElapsedTime() > enemyBulletCooldown) {
+        if (enemyBulletClock.getElapsedTime() > enemyBulletCooldown && !enemies.empty()) {
             int randomEnemy = rand() % enemies.size();
             sf::Sprite enemyBullet(enemyBulletTexture);
             enemyBullet.setPosition(enemies[randomEnemy].getPosition().x + 25, enemies[randomEnemy].getPosition().y + 50);
@@ -249,7 +270,7 @@ private:
             window.draw(helpText);
         }
         else if (isExitConfirmation) {
-            setupText(exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
+            setupText(&exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
             window.draw(exitConfirmationText);
         }
         else {
@@ -274,15 +295,124 @@ private:
 
         window.display();
     }
+    void saveGame() {
+        std::ofstream saveFile("savegame.txt");
+        if (saveFile.is_open()) {
+            saveFile << score << '\n';
+            saveFile << level << '\n';
+            saveFile << health << '\n';
+            saveFile << player.getPosition().x << ' ' << player.getPosition().y << '\n';
+
+            for (const auto& enemy : enemies) {
+                saveFile << enemy.getPosition().x << ' ' << enemy.getPosition().y << '\n';
+            }
+            saveFile << "END\n"; // Oznaczenie końca wrogów
+            saveFile.close();
+        }
+    }
+    void loadGame() {
+        std::ifstream saveFile("savegame.txt");
+        if (!saveFile.is_open()) {
+            throw std::runtime_error("Nie udało się otworzyć pliku do odczytu");
+        }
+
+        std::string line;
+        // Wczytanie podstawowych danych gry
+        if (std::getline(saveFile, line)) score = std::stoi(line);
+        if (std::getline(saveFile, line)) level = std::stoi(line);
+        if (std::getline(saveFile, line)) health = std::stoi(line);
+
+        initializeHealthSprites(); // Aktualizacja zdrowia
+
+        // Wczytanie pozycji gracza
+        if (std::getline(saveFile, line)) {
+            std::istringstream iss(line);
+            float x, y;
+            if (iss >> x >> y) {
+                player.setPosition(x, y);
+            }
+        }
+
+        // Wczytanie pozycji wrogów
+        enemies.clear();
+        while (std::getline(saveFile, line)) {
+            if (line == "END") break; // Detekcja końca sekcji wrogów
+            std::istringstream iss(line);
+            float x, y;
+            if (iss >> x >> y) {
+                sf::Sprite enemy(enemyTexture);
+                enemy.setPosition(x, y);
+                enemies.push_back(enemy);
+            }
+        }
+
+        saveFile.close();
+    }
+    int showMainMenu() {
+        int selection = 0; // 0: Wczytaj grę, 1: Nowa gra
+        sf::Text menuOptions[2];
+
+        setupText(&menuOptions[0], "Wczytaj gre", 300, 200, 30);
+        setupText(&menuOptions[1], "Nowa gra", 300, 250, 30);
+
+        while (window.isOpen()) {
+            sf::Event event;
+            while (window.pollEvent(event)) {
+                if (event.type == sf::Event::Closed) {
+                    window.close();
+                    return -1; // Wyjście z gry
+                }
+
+                if (event.type == sf::Event::KeyPressed) {
+                    if (event.key.code == sf::Keyboard::Up) {
+                        selection = (selection - 1 + 2) % 2;
+                    }
+                    if (event.key.code == sf::Keyboard::Down) {
+                        selection = (selection + 1) % 2;
+                    }
+                    if (event.key.code == sf::Keyboard::Enter) {
+                        return selection;
+                    }
+                }
+            }
+
+            // Podświetlenie wybranej opcji
+            menuOptions[0].setFillColor(selection == 0 ? sf::Color::Yellow : sf::Color::White);
+            menuOptions[1].setFillColor(selection == 1 ? sf::Color::Yellow : sf::Color::White);
+
+            window.clear();
+            window.draw(menuOptions[0]);
+            window.draw(menuOptions[1]);
+            window.display();
+        }
+
+        return -1; // Domyślny zwrot w przypadku zamknięcia
+    }
+
+
+
 
 public:
     SpaceInvaders() : window(sf::VideoMode(800, 600), "Space Invaders") {
         loadResources();
-        setupText(scoreText, "Score: 0", 10, 550);
-        setupText(helpText, "F1: Help\nESC: Exit\nSpace: Shoot\nArrow Keys: Move", 200, 200, 30);
-        setupText(exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
-        spawnEnemies();
-        initializeHealthSprites(); // Inicjalizacja sprite'ów zdrowia
+        setupText(&scoreText, "Score: 0", 10, 550);
+        setupText(&helpText, "F1: Help\nESC: Exit\nSpace: Shoot\nArrow Keys: Move", 200, 200, 30);
+
+        int menuChoice = showMainMenu();
+        if (menuChoice == 0) {
+            loadGame(); // Wczytaj stan gry
+        }
+        else if (menuChoice == 1) {
+            score = 0;
+            level = 1;
+            health = 3;
+            player.setPosition(400, 500);
+            spawnEnemies();
+            initializeHealthSprites();
+        }
+        else {
+            window.close(); // Zamknięcie gry w przypadku wyboru -1
+        }
     }
 
     void run() {
