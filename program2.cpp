@@ -30,6 +30,9 @@ private:
     std::vector<sf::Sprite> fallingHearts; // Sprite'y reprezentujące spadające serca
     sf::Clock enemyBulletClock;
     sf::Time enemyBulletCooldown = sf::seconds(1.0f);
+    sf::Texture playerShootingTexture; // Tekstura dla animacji strzału
+    sf::Clock shootingAnimationClock; // Zegar do kontrolowania czasu zmiany tekstury
+    sf::Time shootingAnimationDuration = sf::seconds(0.2f); // Czas trwania animacji
 
     int score = 0;
     int level = 1;
@@ -63,10 +66,11 @@ private:
             !bulletTexture.loadFromFile("bullet.png") ||
             !enemyBulletTexture.loadFromFile("enemy_bullet.png") ||
             !backgroundTexture.loadFromFile("background.png") ||
-            !healthTexture.loadFromFile("heart.png")) {
+            !healthTexture.loadFromFile("heart.png") ||
+            !playerShootingTexture.loadFromFile("player_shooting.png")) {
             throw std::runtime_error("Nie udało się wczytać tekstur");
         }
-
+        
         player.setTexture(playerTexture);
         background.setTexture(backgroundTexture);
         player.setPosition(400, 500);
@@ -143,6 +147,10 @@ private:
                     isExitConfirmation = true;
                 }
 
+                if (event.key.code == sf::Keyboard::F1) {
+                    isHelpScreen = !isHelpScreen; // Przełączanie ekranu pomocy
+                }
+
                 if (isExitConfirmation) {
                     if (event.key.code == sf::Keyboard::Y) {
                         window.close();
@@ -163,14 +171,9 @@ private:
 
             if (event.type == sf::Event::KeyReleased) {
                 if (event.key.code == sf::Keyboard::Space) {
-                    spaceReleased = true;
+                    spaceReleased = true; // Ustawienie flagi na true po zwolnieniu klawisza spacji
                 }
             }
-            if (event.type == sf::Event::Closed) {
-                saveGame();
-                window.close();
-            }
-
         }
 
         // Strzelanie pociskami gracza
@@ -180,11 +183,20 @@ private:
                 bullet.setPosition(player.getPosition().x + 25, player.getPosition().y);
                 bullets.push_back(bullet);
                 spaceReleased = false;
+
+                // Ustawienie tekstury strzału
+                player.setTexture(playerShootingTexture);
+                shootingAnimationClock.restart(); // Restart zegara animacji
             }
         }
     }
 
+
     void updateGame() {
+        if (shootingAnimationClock.getElapsedTime() > shootingAnimationDuration) {
+            player.setTexture(playerTexture); // Przywrócenie oryginalnej tekstury
+        }
+
         // Aktualizacja pozycji pocisków gracza
         for (auto& bullet : bullets) {
             bullet.move(0, -0.2);
@@ -267,6 +279,8 @@ private:
         window.draw(background);
 
         if (isHelpScreen) {
+            // Ekran pomocy
+            setupText(&helpText, "Sterowanie:\nLewo/Prawo - Strzalki\nStrzelanie - Spacja\nESC - Wyjscie\nF1 - Pomoc", 150, 150, 24);
             window.draw(helpText);
         }
         else if (isExitConfirmation) {
