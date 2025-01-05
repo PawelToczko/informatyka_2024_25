@@ -14,8 +14,99 @@ struct Player {
     std::string name;
     int score;
 };
-
+struct PlayerScore {
+    std::string name;
+    int score;
+};
+std::vector<PlayerScore> leaderboard;
 // Klasa reprezentująca grę
+void addToLeaderboard(const std::string& playerName, int playerScore) {
+    leaderboard.push_back({ playerName, playerScore });
+
+    // Sortowanie leaderboarda malejąco według wyniku
+   /* std::sort(leaderboard.begin(), leaderboard.end(), [](const PlayerScore& a, const PlayerScore& b) {
+        return a.score > b.score;
+        });*/
+
+    // Opcjonalnie ogranicz do top 10 wyników
+    if (leaderboard.size() > 10) {
+        leaderboard.pop_back();
+    }
+}
+void saveLeaderboardToFile(const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Nie udalo sie otworzyc pliku do zapisu leaderboard");
+    }
+
+    for (const auto& entry : leaderboard) {
+        file << entry.name << " " << entry.score << "\n";
+    }
+
+    file.close();
+}
+void loadLeaderboardFromFile(const std::string& filename) {
+    leaderboard.clear();
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return; // Jeśli plik nie istnieje, pomiń
+    }
+
+    std::string name;
+    int score;
+    while (file >> name >> score) {
+        leaderboard.push_back({ name, score });
+    }
+
+    file.close();
+
+    // Sortowanie po wczytaniu
+    std::sort(leaderboard.begin(), leaderboard.end(), [](const PlayerScore& a, const PlayerScore& b) {
+        return a.score > b.score;
+        });
+
+    // Ograniczenie do top 10
+    if (leaderboard.size() > 10) {
+        leaderboard.resize(10);
+    }
+}
+
+void showLeaderboard(sf::RenderWindow& window, sf::Font& font) {
+    window.clear(sf::Color::Black);
+
+    sf::Text title("Punkty Graczy", font, 30);
+    title.setPosition(300, 50);
+    title.setFillColor(sf::Color::White);
+    window.draw(title);
+
+    int yOffset = 100;
+    // Odwrócenie iteracji po leaderboardzie, żeby najwyższy wynik był na górze
+    for (size_t i = 0; i < leaderboard.size(); ++i) {
+        std::string entry = std::to_string(i + 1) + ". " + leaderboard[leaderboard.size() - 1 - i].name + " - " + std::to_string(leaderboard[leaderboard.size() - 1 - i].score);
+        sf::Text text(entry, font, 20);
+        text.setPosition(200, yOffset);
+        text.setFillColor(sf::Color::White);
+        window.draw(text);
+        yOffset += 30;
+    }
+
+    sf::Text back("Nacisnij ESC by wrocic do menu", font, 20);
+    back.setPosition(250, 500);
+    back.setFillColor(sf::Color::White);
+    window.draw(back);
+
+    window.display();
+
+    // Wait for ESC key to return to menu
+    sf::Event event;
+    while (window.waitEvent(event)) {
+        if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+            break;
+        }
+    }
+}
+
+
 class SpaceInvaders {
 private:
     sf::RenderWindow window;
@@ -70,11 +161,12 @@ private:
             !playerShootingTexture.loadFromFile("player_shooting.png")) {
             throw std::runtime_error("Nie udało się wczytać tekstur");
         }
-        
+
         player.setTexture(playerTexture);
         background.setTexture(backgroundTexture);
         player.setPosition(400, 500);
     }
+
 
     void setupText(sf::Text* text, const std::string& content, float x, float y, int size = 20) {
         if (text) {
@@ -96,17 +188,50 @@ private:
     }
 
     void initializeHealthSprites() {
-        healthSprites.clear();
+        healthSprites.clear(); // Usuń poprzednie sprite'y
         for (int i = 0; i < health; ++i) {
             sf::Sprite heart(healthTexture);
-            heart.setPosition(680 + i * 40, 550); // Pozycjonowanie sprite'ów zdrowia
+            heart.setPosition(680 + i * 40, 550); // Ustawienie pozycji serc
             healthSprites.push_back(heart);
         }
     }
 
+
     void updateHealthSprites() {
         if (health < healthSprites.size()) {
             healthSprites.pop_back(); // Usunięcie ostatniego sprite'a zdrowia
+        }
+    }
+    void showGameOverScreen() {
+        sf::Text gameOverText, scoreText, retryText, exitText;
+        setupText(&gameOverText, "GAME OVER", 250, 150, 50);
+        setupText(&scoreText, "Final Score: " + std::to_string(score), 250, 250, 30);
+        setupText(&retryText, "Nacisnij R by sprobowac ponownie", 250, 350, 20);
+        setupText(&exitText, "nacisnij ESC by wylaczyc gre", 250, 400, 20);
+
+        while (window.isOpen()) {
+            sf::Event event;
+            while (window.pollEvent(event)) {
+                if (event.type == sf::Event::Closed) {
+                    window.close();
+                }
+                if (event.type == sf::Event::KeyPressed) {
+                    if (event.key.code == sf::Keyboard::R) {
+                        startNewGame(); // Restart the game
+                        return; // Exit the Game Over screen
+                    }
+                    if (event.key.code == sf::Keyboard::Escape) {
+                        window.close(); // Exit the game
+                    }
+                }
+            }
+
+            window.clear();
+            window.draw(gameOverText);
+            window.draw(scoreText);
+            window.draw(retryText);
+            window.draw(exitText);
+            window.display();
         }
     }
 
@@ -150,9 +275,12 @@ private:
                 if (event.key.code == sf::Keyboard::F1) {
                     isHelpScreen = !isHelpScreen; // Przełączanie ekranu pomocy
                 }
+                if (sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) {
+                    saveGame();
+                }
 
                 if (isExitConfirmation) {
-                    if (event.key.code == sf::Keyboard::Y) {
+                    if (event.key.code == sf::Keyboard::T) {
                         window.close();
                     }
                     else if (event.key.code == sf::Keyboard::N) {
@@ -254,7 +382,15 @@ private:
                 updateHealthSprites(); // Aktualizacja sprite'ów zdrowia
                 if (health <= 0) {
                     gameRunning = false;
+
+                    // Dodanie wyniku gracza do leaderboard
+                    addToLeaderboard("Gracz", score); // Zmień "Gracz" na aktualną nazwę gracza, jeśli dodasz jej wprowadzanie
+
+                    // Zapisanie leaderboard do pliku
+                    saveLeaderboardToFile("leaderboard.txt");
+                    showGameOverScreen();
                 }
+
             }
             else {
                 ++it;
@@ -274,17 +410,17 @@ private:
         scoreText.setString("Score: " + std::to_string(score));
     }
 
+
     void render() {
         window.clear();
         window.draw(background);
 
         if (isHelpScreen) {
-            // Ekran pomocy
-            setupText(&helpText, "Sterowanie:\nLewo/Prawo - Strzalki\nStrzelanie - Spacja\nESC - Wyjscie\nF1 - Pomoc", 150, 150, 24);
+            setupText(&helpText, "Sterowanie:\nLewo/Prawo - Strzalki\nStrzelanie - Spacja\nESC - Wyjscie\nF1 - Pomoc\nF5 - Zapisz Grę", 150, 150, 24);
             window.draw(helpText);
         }
         else if (isExitConfirmation) {
-            setupText(&exitConfirmationText, "Do you want to exit? (Y/N)", 200, 200, 30);
+            setupText(&exitConfirmationText, "Czy chcesz wyjsc z gry (T/N)", 200, 200, 30);
             window.draw(exitConfirmationText);
         }
         else {
@@ -309,25 +445,36 @@ private:
 
         window.display();
     }
+
     void saveGame() {
         std::ofstream saveFile("savegame.txt");
-        if (saveFile.is_open()) {
-            saveFile << score << '\n';
-            saveFile << level << '\n';
-            saveFile << health << '\n';
-            saveFile << player.getPosition().x << ' ' << player.getPosition().y << '\n';
-
-            for (const auto& enemy : enemies) {
-                saveFile << enemy.getPosition().x << ' ' << enemy.getPosition().y << '\n';
-            }
-            saveFile << "END\n"; // Oznaczenie końca wrogów
-            saveFile.close();
+        if (!saveFile.is_open()) {
+            throw std::runtime_error("Nie udalo sie otworzyc pliku do zapisu");
         }
+
+        // Zapisanie podstawowych danych gry
+        saveFile << score << '\n';  // Wynik
+        saveFile << level << '\n';  // Poziom
+        saveFile << health << '\n'; // Zdrowie
+
+        // Zapisanie pozycji gracza
+        sf::Vector2f playerPosition = player.getPosition();
+        saveFile << playerPosition.x << ' ' << playerPosition.y << '\n';
+
+        // Zapisanie pozycji wrogów
+        for (const auto& enemy : enemies) {
+            sf::Vector2f enemyPosition = enemy.getPosition();
+            saveFile << enemyPosition.x << ' ' << enemyPosition.y << '\n';
+        }
+        saveFile << "END\n"; // Znak końca sekcji wrogów
+
+        saveFile.close();
+        std::cout << "Gra zostala zapisana!" << std::endl;
     }
     void loadGame() {
         std::ifstream saveFile("savegame.txt");
         if (!saveFile.is_open()) {
-            throw std::runtime_error("Nie udało się otworzyć pliku do odczytu");
+            throw std::runtime_error("Nie udało sie otworzyc pliku do odczytu");
         }
 
         std::string line;
@@ -336,7 +483,7 @@ private:
         if (std::getline(saveFile, line)) level = std::stoi(line);
         if (std::getline(saveFile, line)) health = std::stoi(line);
 
-        initializeHealthSprites(); // Aktualizacja zdrowia
+        initializeHealthSprites(); // Aktualizacja sprite'ów zdrowia
 
         // Wczytanie pozycji gracza
         if (std::getline(saveFile, line)) {
@@ -362,12 +509,15 @@ private:
 
         saveFile.close();
     }
+
+
     int showMainMenu() {
-        int selection = 0; // 0: Wczytaj grę, 1: Nowa gra
-        sf::Text menuOptions[2];
+        int selection = 0; // 0: Wczytaj grę, 1: Nowa gra, 2: Leaderboard
+        sf::Text menuOptions[3];
 
         setupText(&menuOptions[0], "Wczytaj gre", 300, 200, 30);
         setupText(&menuOptions[1], "Nowa gra", 300, 250, 30);
+        setupText(&menuOptions[2], "Punkty Graczy", 300, 300, 30);
 
         while (window.isOpen()) {
             sf::Event event;
@@ -379,10 +529,10 @@ private:
 
                 if (event.type == sf::Event::KeyPressed) {
                     if (event.key.code == sf::Keyboard::Up) {
-                        selection = (selection - 1 + 2) % 2;
+                        selection = (selection - 1 + 3) % 3;
                     }
                     if (event.key.code == sf::Keyboard::Down) {
-                        selection = (selection + 1) % 2;
+                        selection = (selection + 1) % 3;
                     }
                     if (event.key.code == sf::Keyboard::Enter) {
                         return selection;
@@ -391,12 +541,14 @@ private:
             }
 
             // Podświetlenie wybranej opcji
-            menuOptions[0].setFillColor(selection == 0 ? sf::Color::Yellow : sf::Color::White);
-            menuOptions[1].setFillColor(selection == 1 ? sf::Color::Yellow : sf::Color::White);
+            for (int i = 0; i < 3; ++i) {
+                menuOptions[i].setFillColor(selection == i ? sf::Color::Yellow : sf::Color::White);
+            }
 
             window.clear();
-            window.draw(menuOptions[0]);
-            window.draw(menuOptions[1]);
+            for (const auto& option : menuOptions) {
+                window.draw(option);
+            }
             window.display();
         }
 
@@ -409,35 +561,60 @@ private:
 public:
     SpaceInvaders() : window(sf::VideoMode(800, 600), "Space Invaders") {
         loadResources();
+        loadLeaderboardFromFile("leaderboard.txt");
         setupText(&scoreText, "Score: 0", 10, 550);
         setupText(&helpText, "F1: Help\nESC: Exit\nSpace: Shoot\nArrow Keys: Move", 200, 200, 30);
 
-        int menuChoice = showMainMenu();
-        if (menuChoice == 0) {
-            loadGame(); // Wczytaj stan gry
-        }
-        else if (menuChoice == 1) {
-            score = 0;
-            level = 1;
-            health = 3;
-            player.setPosition(400, 500);
-            spawnEnemies();
-            initializeHealthSprites();
-        }
-        else {
-            window.close(); // Zamknięcie gry w przypadku wyboru -1
+        while (true) {
+            int menuChoice = showMainMenu();
+            if (menuChoice == 0) {
+                loadGame(); // Wczytaj stan gry
+                break; // Przejdź do gry
+            }
+            else if (menuChoice == 1) {
+                score = 0;
+                level = 1;
+                health = 3;
+                player.setPosition(400, 500);
+                spawnEnemies();
+                initializeHealthSprites();
+                break; // Przejdź do gry
+            }
+            else if (menuChoice == 2) {
+                showLeaderboard(window, font); // Wyświetl leaderboard
+            }
+            else {
+                window.close(); // Zamknięcie gry w przypadku wyboru -1
+                break;
+            }
         }
     }
 
+
     void run() {
-        while (window.isOpen() && gameRunning) {
+        while (window.isOpen()) {
             handleEvents();
-            if (!isHelpScreen && !isExitConfirmation) {
-                updateGame();
+            if (gameRunning) {
+                if (!isHelpScreen && !isExitConfirmation) {
+                    updateGame();
+                }
+                render();
             }
-            render();
+            else {
+                int choice = showMainMenu(); // Wybór nowej gry lub wczytania
+                if (choice == 1) {
+                    startNewGame(); // Rozpocznij nową grę
+                }
+                else if (choice == 0) {
+                    loadGame(); // Wczytaj zapis gry
+                }
+                else {
+                    window.close(); // Zamknij grę
+                }
+            }
         }
     }
+
 };
 
 int main() {
@@ -452,4 +629,5 @@ int main() {
 
     return 0;
 }
+
 
