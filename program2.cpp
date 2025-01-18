@@ -177,12 +177,34 @@ private:
             text->setPosition(x, y);
         }
     }
-
     void spawnEnemies() {
+        const float MIN_DISTANCE = 50.0f; 
         enemies.clear();
-        for (int i = 0; i < 5 + level; ++i) {
+
+        for (int i = 0; i < 4 + level; ++i) {
             sf::Sprite enemy(enemyTexture);
-            enemy.setPosition(rand() % 700, rand() % 200);
+            bool validPosition = false;
+
+            
+            while (!validPosition) {
+              
+                float x = rand() % 700;
+                float y = rand() % 200;
+                enemy.setPosition(x, y);
+
+               
+                validPosition = true;
+                for (const auto& existingEnemy : enemies) {
+                    float dx = existingEnemy.getPosition().x - x;
+                    float dy = existingEnemy.getPosition().y - y;
+                    float distance = std::sqrt(dx * dx + dy * dy);
+
+                    if (distance < MIN_DISTANCE) {
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
             enemies.push_back(enemy);
         }
     }
@@ -405,6 +427,7 @@ private:
 
         // Aktualizacja spadających serc
         updateFallingHearts();
+       
 
         // Aktualizacja wyświetlanych danych
         scoreText.setString("Score: " + std::to_string(score));
@@ -509,8 +532,7 @@ private:
 
         saveFile.close();
     }
-
-
+ 
     int showMainMenu() {
         int selection = 0; // 0: Wczytaj grę, 1: Nowa gra, 2: Leaderboard
         sf::Text menuOptions[3];
