@@ -58,7 +58,7 @@ void loadLeaderboardFromFile(const std::string& filename) {
 
     // Sortowanie po wczytaniu
     std::sort(leaderboard.begin(), leaderboard.end(), [](const PlayerScore& a, const PlayerScore& b) {
-        return a.score > b.score;
+        return a.score < b.score;
         });
 
     // Ograniczenie do top 10
